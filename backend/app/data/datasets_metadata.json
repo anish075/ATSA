@@ -1,0 +1,94 @@
+{
+  "datasets": [
+    {
+      "id": "monthly_sales",
+      "name": "Monthly Sales Data",
+      "description": "Retail sales data with trend and seasonal patterns",
+      "frequency": "Monthly",
+      "date_column": "date",
+      "value_column": "sales",
+      "features": [
+        "trend",
+        "seasonality",
+        "growth"
+      ],
+      "suitable_models": [
+        "ARIMA",
+        "SARIMA",
+        "Holt-Winters"
+      ],
+      "records": 48
+    },
+    {
+      "id": "daily_temperature",
+      "name": "Daily Temperature",
+      "description": "Daily temperature readings with annual seasonality",
+      "frequency": "Daily",
+      "date_column": "date",
+      "value_column": "temperature",
+      "features": [
+        "seasonality",
+        "noise"
+      ],
+      "suitable_models": [
+        "SARIMA",
+        "Holt-Winters",
+        "Prophet"
+      ],
+      "records": 730
+    },
+    {
+      "id": "stock_prices",
+      "name": "Stock Price Data",
+      "description": "Daily stock prices with random walk behavior",
+      "frequency": "Daily",
+      "date_column": "date",
+      "value_column": "price",
+      "features": [
+        "volatility",
+        "random_walk"
+      ],
+      "suitable_models": [
+        "ARIMA",
+        "LSTM"
+      ],
+      "records": 1095
+    },
+    {
+      "id": "website_traffic",
+      "name": "Website Traffic",
+      "description": "Hourly website visitor data with weekly patterns",
+      "frequency": "Hourly",
+      "date_column": "datetime",
+      "value_column": "visitors",
+      "features": [
+        "weekly_seasonality",
+        "daily_patterns"
+      ],
+      "suitable_models": [
+        "SARIMA",
+        "Prophet",
+        "LSTM"
+      ],
+      "records": 2137
+    },
+    {
+      "id": "economic_indicators",
+      "name": "Economic Indicators",
+      "description": "Quarterly GDP growth with economic cycles",
+      "frequency": "Quarterly",
+      "date_column": "quarter",
+      "value_column": "gdp_growth",
+      "features": [
+        "economic_cycles",
+        "trend"
+      ],
+      "suitable_models": [
+        "ARIMA",
+        "SARIMA",
+        "Holt-Winters"
+      ],
+      "records": 55
+    }
+  ]
+}

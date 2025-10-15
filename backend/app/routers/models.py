@@ -10,9 +10,13 @@ model_manager = EnhancedTimeSeriesModelManager()
 async def fit_model(request: ForecastRequest):
     """Fit a time series model and generate forecasts"""
     try:
+        print(f"📊 Fitting model: {request.model_configuration.model_type}")
+        print(f"📊 Data keys: {request.data.keys()}")
+        print(f"📊 Data sample: {str(request.data)[:200]}")
+        
         result = model_manager.fit_and_forecast(
             data=request.data,
-            model_config=request.model_configuration
+            model_config=request.model_configuration.dict()
         )
         return ForecastResponse(
             success=True,
@@ -20,7 +24,10 @@ async def fit_model(request: ForecastRequest):
             message=f"Successfully fitted {request.model_configuration.model_type} model"
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Model fitting failed: {str(e)}")
+        import traceback
+        error_detail = traceback.format_exc()
+        print(f"❌ Model fitting error: {error_detail}")
+        raise HTTPException(status_code=500, detail=f"Model fitting failed: {str(e)}\n{error_detail}")
 
 @router.post("/compare")
 async def compare_models(data: Dict[str, Any]):

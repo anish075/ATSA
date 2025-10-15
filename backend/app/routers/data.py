@@ -45,36 +45,44 @@ async def get_sample_datasets():
         # Return built-in sample datasets
         datasets = [
             {
-                "name": "airline_passengers",
-                "title": "Airline Passengers (1949-1960)",
-                "description": "Monthly international airline passengers data showing strong seasonal patterns and upward trend",
-                "rows": 144,
-                "frequency": "Monthly",
-                "features": ["seasonality", "trend", "multiplicative"]
-            },
-            {
                 "name": "stock_prices", 
                 "title": "Stock Price Data",
-                "description": "Daily stock prices with volatility patterns typical of financial time series",
-                "rows": 252,
+                "description": "Daily stock prices with volatility (1095 records)",
+                "rows": 1095,
                 "frequency": "Daily",
                 "features": ["volatility", "random_walk", "financial"]
             },
             {
-                "name": "sales_data",
-                "title": "Retail Sales Data", 
-                "description": "Monthly sales data with clear seasonal patterns and holiday effects",
-                "rows": 60,
+                "name": "monthly_sales",
+                "title": "Monthly Sales Data", 
+                "description": "Retail sales with seasonal patterns (48 records)",
+                "rows": 48,
                 "frequency": "Monthly",
-                "features": ["seasonality", "holidays", "business_metrics"]
+                "features": ["seasonality", "trend", "business_metrics"]
             },
             {
-                "name": "temperature_data",
+                "name": "daily_temperature",
                 "title": "Temperature Measurements",
-                "description": "Daily temperature readings showing natural seasonal cycles",
-                "rows": 365,
+                "description": "Daily temperature with seasonal cycles (730 records)",
+                "rows": 730,
                 "frequency": "Daily", 
                 "features": ["seasonal", "weather", "cyclic"]
+            },
+            {
+                "name": "website_traffic",
+                "title": "Website Traffic Data",
+                "description": "Hourly website visitors with weekly patterns (2137 records)",
+                "rows": 2137,
+                "frequency": "Hourly",
+                "features": ["weekly_pattern", "trend", "web_analytics"]
+            },
+            {
+                "name": "economic_indicators",
+                "title": "Economic Indicators",
+                "description": "Quarterly economic data (55 records)",
+                "rows": 55,
+                "frequency": "Quarterly",
+                "features": ["economic", "multiple_series", "macro"]
             }
         ]
         
@@ -86,7 +94,37 @@ async def get_sample_datasets():
 async def load_sample_dataset(dataset_name: str):
     """Load a specific sample dataset"""
     try:
-        # Generate sample data based on dataset name
+        import os
+        
+        # Map dataset names to CSV files
+        dataset_files = {
+            "stock_prices": ("stock_prices.csv", "price", "date", "Stock Price Data"),
+            "monthly_sales": ("monthly_sales.csv", "sales", "date", "Monthly Sales Data"),
+            "daily_temperature": ("daily_temperature.csv", "temperature", "date", "Daily Temperature"),
+            "website_traffic": ("website_traffic.csv", "visitors", "date", "Website Traffic"),
+            "economic_indicators": ("economic_indicators.csv", "gdp_growth", "date", "Economic Indicators")
+        }
+        
+        # Check if dataset exists in our CSV files
+        if dataset_name in dataset_files:
+            csv_file, value_col, time_col, title = dataset_files[dataset_name]
+            data_dir = os.path.join(os.path.dirname(__file__), '../data')
+            file_path = os.path.join(data_dir, csv_file)
+            
+            if os.path.exists(file_path):
+                df = pd.read_csv(file_path)
+                
+                return {
+                    "success": True,
+                    "name": dataset_name,
+                    "title": title,
+                    "records": df.to_dict('records'),
+                    "value_column": value_col,
+                    "time_column": time_col,
+                    "description": f"Real dataset with {len(df)} observations"
+                }
+        
+        # Fallback to generated data if CSV not found
         import numpy as np
         from datetime import datetime, timedelta
         

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import API from '../services/api';
 
 const LearningPage: React.FC = () => {
@@ -487,8 +489,25 @@ const LearningPage: React.FC = () => {
                         section.type === 'case_study' ? 'bg-purple-50 border border-purple-200' :
                         'bg-gray-50'
                       }`}>
-                        <div className="whitespace-pre-wrap text-gray-700">
-                          {section.content}
+                        <div className="prose prose-sm max-w-none text-gray-700">
+                          <ReactMarkdown 
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              strong: ({node, ...props}) => <span className="font-bold text-gray-900" {...props} />,
+                              code: ({node, inline, ...props}: any) => 
+                                inline ? (
+                                  <code className="bg-gray-200 px-1 rounded text-sm font-mono" {...props} />
+                                ) : (
+                                  <pre className="bg-gray-800 text-gray-100 p-4 rounded-lg overflow-x-auto">
+                                    <code className="font-mono text-sm" {...props} />
+                                  </pre>
+                                ),
+                              ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-1 ml-4" {...props} />,
+                              ol: ({node, ...props}) => <ol className="list-decimal list-inside space-y-1 ml-4" {...props} />,
+                            }}
+                          >
+                            {section.content}
+                          </ReactMarkdown>
                         </div>
                       </div>
                       

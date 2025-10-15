@@ -13,6 +13,7 @@ import {
   Activity,
   BarChart3
 } from 'lucide-react';
+import { DataAPI, ModelsAPI, AnalysisAPI } from '../services/api';
 
 const PlaygroundPage: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -27,6 +28,8 @@ const PlaygroundPage: React.FC = () => {
   });
   const [modelResults, setModelResults] = useState<any>(null);
   const [activeView, setActiveView] = useState<'raw' | 'decomposition' | 'forecast'>('raw');
+  const [error, setError] = useState<string | null>(null);
+  const [decomposition, setDecomposition] = useState<any>(null);
 
   // Sample data for demonstration
   const sampleData = {
@@ -42,64 +45,126 @@ const PlaygroundPage: React.FC = () => {
 
   useEffect(() => {
     // Load sample data on component mount
-    setData(sampleData);
+    loadSampleData('stock_prices');
   }, []);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const loadSampleData = async (datasetName: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await DataAPI.loadSampleDataset(datasetName);
+      if (result && result.success) {
+        setData({
+          records: result.records,
+          value_column: result.value_column,
+          time_column: result.time_column,
+          title: result.title
+        });
+      } else {
+        setError('Failed to load sample dataset');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error loading sample data');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedFile(file);
       setIsLoading(true);
+      setError(null);
       
-      // Simulate file processing
-      setTimeout(() => {
-        setData(sampleData);
+      try {
+        const result = await DataAPI.uploadData(file);
+        if (result && result.success) {
+          setData({
+            records: result.data,
+            columns: result.columns,
+            value_column: result.columns[result.columns.length - 1], // Use last column as value column
+            time_column: result.columns[0] // Use first column as time column
+          });
+        } else {
+          setError('Failed to upload file');
+        }
+      } catch (err: any) {
+        setError(err.message || 'Error uploading file');
+      } finally {
         setIsLoading(false);
-      }, 2000);
+      }
     }
   };
 
-  const handleModelRun = () => {
-    setIsLoading(true);
-    
-    // Simulate model fitting
-    setTimeout(() => {
-      const forecast = Array.from({ length: modelParameters.forecast_periods }, (_, i) => {
-        const lastValue = data.values[data.values.length - 1];
-        return lastValue + (Math.random() - 0.5) * 30;
-      });
-      
-      const forecastDates = Array.from({ length: modelParameters.forecast_periods }, (_, i) => {
-        const date = new Date(2023, 3, 11);
-        date.setDate(date.getDate() + i);
-        return date.toISOString().split('T')[0];
-      });
+  const handleModelRun = async () => {
+    if (!data || !data.records) {
+      setError('No data available. Please upload data or select a sample dataset.');
+      return;
+    }
 
-      setModelResults({
-        fitted_values: data.values,
-        forecast: forecast,
-        forecast_dates: forecastDates,
-        metrics: {
-          mae: (15.2 + Math.random() * 5).toFixed(2),
-          rmse: (22.8 + Math.random() * 8).toFixed(2),
-          mape: (8.5 + Math.random() * 3).toFixed(1)
-        }
-      });
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const modelConfig = {
+        model_type: selectedModel,
+        parameters: modelParameters,
+        forecast_periods: modelParameters.forecast_periods,
+        confidence_interval: 0.95
+      };
+
+      const result = await ModelsAPI.fitModel(data, modelConfig);
+      
+      if (result) {
+        setModelResults(result);
+        setActiveView('forecast');
+      } else {
+        setError('Failed to fit model');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error running model');
+    } finally {
       setIsLoading(false);
-      setActiveView('forecast');
-    }, 3000);
+    }
+  };
+
+  const handleDecomposition = async () => {
+    if (!data || !data.records) {
+      setError('No data available');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const result = await AnalysisAPI.decomposeTimeSeries(data, 'additive');
+      if (result) {
+        setDecomposition(result);
+        setActiveView('decomposition');
+      } else {
+        setError('Failed to decompose time series');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error decomposing series');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const renderChart = () => {
-    if (!data) return null;
+    if (!data || !data.records) return null;
 
     let chartData: any[] = [];
+    const timeValues = data.records.map((r: any) => r[data.time_column]);
+    const dataValues = data.records.map((r: any) => r[data.value_column]);
 
     if (activeView === 'raw' || activeView === 'forecast') {
       // Raw data trace
       chartData.push({
-        x: data.dates,
-        y: data.values,
+        x: timeValues,
+        y: dataValues,
         type: 'scatter',
         mode: 'lines',
         name: 'Actual Data',
@@ -117,41 +182,35 @@ const PlaygroundPage: React.FC = () => {
           line: { color: '#ef4444', width: 2, dash: 'dash' }
         });
 
-        // Confidence interval (simplified)
-        const upperBound = modelResults.forecast.map((val: number) => val + 20);
-        const lowerBound = modelResults.forecast.map((val: number) => val - 20);
-        
-        chartData.push({
-          x: [...modelResults.forecast_dates, ...modelResults.forecast_dates.slice().reverse()],
-          y: [...upperBound, ...lowerBound.slice().reverse()],
-          fill: 'toself',
-          fillcolor: 'rgba(239, 68, 68, 0.2)',
-          line: { color: 'transparent' },
-          name: '95% Confidence',
-          showlegend: false
-        });
+        // Confidence interval
+        if (modelResults.forecast_upper && modelResults.forecast_lower) {
+          chartData.push({
+            x: [...modelResults.forecast_dates, ...modelResults.forecast_dates.slice().reverse()],
+            y: [...modelResults.forecast_upper, ...modelResults.forecast_lower.slice().reverse()],
+            fill: 'toself',
+            fillcolor: 'rgba(239, 68, 68, 0.2)',
+            line: { color: 'transparent' },
+            name: '95% Confidence',
+            showlegend: true
+          });
+        }
       }
     }
 
-    if (activeView === 'decomposition') {
-      // Simulate decomposition components
-      const trend = data.values.map((val: number, i: number) => val - 10 * Math.sin(i * 0.1));
-      const seasonal = data.values.map((_: number, i: number) => 10 * Math.sin(i * 0.1));
-      const residual = data.values.map((_: number) => (Math.random() - 0.5) * 10);
-
+    if (activeView === 'decomposition' && decomposition) {
       return (
         <div className="space-y-4">
           {[
-            { name: 'Original', data: data.values, color: '#3b82f6' },
-            { name: 'Trend', data: trend, color: '#10b981' },
-            { name: 'Seasonal', data: seasonal, color: '#f59e0b' },
-            { name: 'Residual', data: residual, color: '#ef4444' }
-          ].map((component) => (
+            { name: 'Original', data: decomposition.original || dataValues, color: '#3b82f6' },
+            { name: 'Trend', data: decomposition.trend, color: '#10b981' },
+            { name: 'Seasonal', data: decomposition.seasonal, color: '#f59e0b' },
+            { name: 'Residual', data: decomposition.residual, color: '#ef4444' }
+          ].filter(component => component.data).map((component) => (
             <div key={component.name} className="neu-card p-4">
               <h4 className="font-medium text-gray-900 dark:text-white mb-2">{component.name}</h4>
               <Plot
                 data={[{
-                  x: data.dates,
+                  x: timeValues,
                   y: component.data,
                   type: 'scatter',
                   mode: 'lines',
@@ -231,7 +290,12 @@ const PlaygroundPage: React.FC = () => {
             ].map((view) => (
               <button
                 key={view.key}
-                onClick={() => setActiveView(view.key as any)}
+                onClick={() => {
+                  setActiveView(view.key as any);
+                  if (view.key === 'decomposition' && !decomposition) {
+                    handleDecomposition();
+                  }
+                }}
                 className={`flex items-center space-x-2 px-3 py-2 rounded-md transition-all ${
                   activeView === view.key
                     ? 'bg-white dark:bg-gray-600 text-blue-600 shadow-sm'
@@ -279,7 +343,16 @@ const PlaygroundPage: React.FC = () => {
       </div>
 
       {/* Status Bar */}
-      {selectedFile && (
+      {error && (
+        <div className="flex items-center space-x-2 mb-4 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
+          <AlertCircle className="w-5 h-5 text-red-600" />
+          <span className="text-sm text-red-800 dark:text-red-300">
+            {error}
+          </span>
+        </div>
+      )}
+      
+      {selectedFile && !error && (
         <div className="flex items-center space-x-2 mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
           <CheckCircle className="w-5 h-5 text-blue-600" />
           <span className="text-sm text-blue-800 dark:text-blue-300">
@@ -431,17 +504,17 @@ const PlaygroundPage: React.FC = () => {
             
             <div className="space-y-2">
               {[
-                'Stock Prices',
-                'Air Quality',
-                'Energy Consumption',
-                'Retail Sales'
+                { name: 'stock_prices', label: 'Stock Prices' },
+                { name: 'sales_data', label: 'Retail Sales' },
+                { name: 'temperature_data', label: 'Temperature Data' },
+                { name: 'airline_passengers', label: 'Airline Passengers' }
               ].map((dataset) => (
                 <button
-                  key={dataset}
-                  onClick={() => setData(sampleData)}
+                  key={dataset.name}
+                  onClick={() => loadSampleData(dataset.name)}
                   className="w-full text-left p-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                 >
-                  {dataset}
+                  {dataset.label}
                 </button>
               ))}
             </div>

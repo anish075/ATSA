@@ -71,6 +71,46 @@
             "question": "Write Python code to test if a pandas Series 'ts' is stationary using the Augmented Dickey-Fuller test (use statsmodels.tsa.stattools.adfuller). Print whether the series is stationary based on p-value < 0.05.",
             "correct_answer": "from statsmodels.tsa.stattools import adfuller\nresult = adfuller(ts)\nif result[1] < 0.05:\n    print('Series is stationary')\nelse:\n    print('Series is non-stationary')",
             "explanation": "The ADF test has null hypothesis of non-stationarity. If p-value < 0.05, we reject the null and conclude the series is stationary."
+          },
+          {
+            "id": 4,
+            "type": "multiple_choice",
+            "question": "Which transformation is most appropriate for stabilizing variance in a time series with exponential growth?",
+            "options": [
+              "First differencing",
+              "Log transformation",
+              "Square root transformation",
+              "Seasonal differencing"
+            ],
+            "correct_answer": 1,
+            "explanation": "Log transformation is ideal for exponential growth patterns as it converts multiplicative relationships to additive ones and stabilizes variance proportional to the level."
+          },
+          {
+            "id": 5,
+            "type": "true_false",
+            "question": "White noise is characterized by zero mean, constant variance, and no autocorrelation at any lag.",
+            "correct_answer": true,
+            "explanation": "White noise is a purely random process with E[εₜ] = 0, Var[εₜ] = σ², and Cov[εₜ, εₛ] = 0 for all t ≠ s, making it the ideal residual pattern after model fitting."
+          },
+          {
+            "id": 6,
+            "type": "multiple_choice",
+            "question": "In seasonal decomposition, what does a multiplicative model assume about the relationship between components?",
+            "options": [
+              "Components are added together",
+              "Seasonal amplitude is constant over time",
+              "Seasonal amplitude varies proportionally with trend level",
+              "There is no relationship between components"
+            ],
+            "correct_answer": 2,
+            "explanation": "Multiplicative models (Y = T × S × E) assume seasonal fluctuations scale with the trend level, common in economic data where percentage changes are more meaningful than absolute changes."
+          },
+          {
+            "id": 7,
+            "type": "coding",
+            "question": "Write Python code using pandas to create a time series with 365 daily observations starting from '2023-01-01' with random values.",
+            "correct_answer": "import pandas as pd\nimport numpy as np\ndates = pd.date_range('2023-01-01', periods=365, freq='D')\nts = pd.Series(np.random.randn(365), index=dates)",
+            "explanation": "pd.date_range creates a datetime index with specified frequency, and pd.Series combines it with random data to create a time series with proper temporal indexing."
           }
         ]
       }
@@ -237,6 +277,39 @@
             "question": "Write Python code using statsmodels to fit a SARIMA(1,1,1)(1,1,1)₁₂ model to a pandas Series 'ts' and get the fitted model's AIC.",
             "correct_answer": "from statsmodels.tsa.statespace.sarimax import SARIMAX\nmodel = SARIMAX(ts, order=(1,1,1), seasonal_order=(1,1,1,12))\nfitted_model = model.fit()\naic = fitted_model.aic",
             "explanation": "SARIMAX is the modern statsmodels implementation for SARIMA. The seasonal_order tuple includes (P,D,Q,s) where s is the seasonal period."
+          },
+          {
+            "id": 5,
+            "type": "multiple_choice",
+            "question": "What is the primary purpose of the Augmented Dickey-Fuller (ADF) test when building SARIMA models?",
+            "options": [
+              "To determine the seasonal period",
+              "To test for stationarity and decide on differencing order",
+              "To select the optimal AR and MA orders",
+              "To validate model residuals"
+            ],
+            "correct_answer": 1,
+            "explanation": "The ADF test checks for unit roots to determine if differencing is needed. A significant p-value (< 0.05) indicates stationarity, helping decide the differencing orders (d and D)."
+          },
+          {
+            "id": 6,
+            "type": "true_false",
+            "question": "In SARIMA modeling, applying log transformation before differencing helps stabilize variance when seasonal fluctuations increase with the level.",
+            "correct_answer": true,
+            "explanation": "Log transformation is crucial for multiplicative seasonality where seasonal amplitude grows with the trend. This stabilizes variance before applying SARIMA, which assumes constant variance."
+          },
+          {
+            "id": 7,
+            "type": "multiple_choice",
+            "question": "When ACF shows spikes at lags 12, 24, 36 and slowly decaying pattern, what does this suggest for monthly data?",
+            "options": [
+              "Use seasonal differencing (D=1) with s=12",
+              "Increase the number of seasonal AR terms (P)",
+              "Apply first differencing (d=1) only",
+              "The data is already stationary"
+            ],
+            "correct_answer": 0,
+            "explanation": "Slowly decaying spikes at seasonal lags (12, 24, 36) indicate a seasonal unit root, requiring seasonal differencing (D=1) with seasonal period s=12 for monthly data."
           }
         ]
       }
@@ -320,6 +393,46 @@
             "question": "Write Python code using statsmodels to fit a Holt-Winters model with additive trend and multiplicative seasonality to a pandas Series 'ts', then forecast 6 periods ahead.",
             "correct_answer": "from statsmodels.tsa.holtwinters import ExponentialSmoothing\nmodel = ExponentialSmoothing(ts, trend='add', seasonal='mul', seasonal_periods=12)\nfitted_model = model.fit()\nforecast = fitted_model.forecast(steps=6)",
             "explanation": "ExponentialSmoothing with trend='add' and seasonal='mul' creates a Holt-Winters model with additive trend and multiplicative seasonality. The seasonal_periods parameter specifies the seasonal cycle length."
+          },
+          {
+            "id": 4,
+            "type": "multiple_choice",
+            "question": "What is the primary purpose of the damping parameter (φ) in Holt-Winters damped trend method?",
+            "options": [
+              "To reduce seasonal fluctuations",
+              "To flatten the trend over time, preventing infinite growth",
+              "To smooth the level component",
+              "To handle missing values"
+            ],
+            "correct_answer": 1,
+            "explanation": "The damping parameter φ (0 < φ ≤ 1) reduces the impact of the trend component as forecasts extend further into the future, preventing unrealistic linear growth and providing more conservative long-term forecasts."
+          },
+          {
+            "id": 5,
+            "type": "true_false",
+            "question": "Holt-Winters additive seasonality is more appropriate than multiplicative when seasonal fluctuations remain constant regardless of the series level.",
+            "correct_answer": true,
+            "explanation": "Additive seasonality assumes seasonal variations are constant in absolute terms. Use multiplicative seasonality when seasonal amplitude increases proportionally with the level of the series."
+          },
+          {
+            "id": 6,
+            "type": "multiple_choice",
+            "question": "In ETS(M,A,M) notation, what do the three letters represent?",
+            "options": [
+              "Model, Additive, Multiplicative",
+              "Error type, Trend type, Seasonal type",
+              "Mean, Autoregressive, Moving average",
+              "Monthly, Annual, Maximum"
+            ],
+            "correct_answer": 1,
+            "explanation": "ETS notation specifies Error type (Additive/Multiplicative), Trend type (None/Additive/Damped), and Seasonal type (None/Additive/Multiplicative). ETS(M,A,M) has Multiplicative errors, Additive trend, and Multiplicative seasonality."
+          },
+          {
+            "id": 7,
+            "type": "coding",
+            "question": "Write code to fit a Holt-Winters model with additive trend, multiplicative seasonality, and damped trend to monthly data in pandas Series 'sales', then forecast 6 periods ahead.",
+            "correct_answer": "from statsmodels.tsa.holtwinters import ExponentialSmoothing\nmodel = ExponentialSmoothing(sales, trend='add', seasonal='mul', seasonal_periods=12, damped_trend=True)\nfitted_model = model.fit()\nforecast = fitted_model.forecast(steps=6)",
+            "explanation": "ExponentialSmoothing with trend='add', seasonal='mul', damped_trend=True, and seasonal_periods=12 creates the required model. The fit() method estimates parameters, and forecast() generates future predictions."
           }
         ]
       }
@@ -403,6 +516,39 @@
             "question": "Write Python code to create a Prophet model with multiplicative seasonality, US holidays, and a custom 'monthly' seasonality with period 30.5 days.",
             "correct_answer": "from prophet import Prophet\nimport holidays\nus_holidays = holidays.US()\nholiday_df = pd.DataFrame({'holiday': 'US_holiday', 'ds': pd.to_datetime(list(us_holidays.keys()))})\nmodel = Prophet(seasonality_mode='multiplicative', holidays=holiday_df)\nmodel.add_seasonality(name='monthly', period=30.5, fourier_order=5)",
             "explanation": "This creates a Prophet model with multiplicative seasonality, adds US holidays as a DataFrame, and includes custom monthly seasonality using add_seasonality() with the specified period."
+          },
+          {
+            "id": 5,
+            "type": "multiple_choice",
+            "question": "What does increasing the changepoint_prior_scale parameter in Prophet do?",
+            "options": [
+              "Increases the number of seasonal components",
+              "Makes the trend more flexible by allowing more changepoints",
+              "Increases the prediction interval width",
+              "Strengthens holiday effects"
+            ],
+            "correct_answer": 1,
+            "explanation": "changepoint_prior_scale controls the flexibility of the trend. Higher values (e.g., 0.5) allow more changepoints to be active, creating a more flexible trend that adapts to changes. Lower values (e.g., 0.01) create smoother, more conservative trends."
+          },
+          {
+            "id": 6,
+            "type": "true_false",
+            "question": "Prophet uses Fourier series to model seasonality, allowing it to capture complex seasonal patterns with different amplitudes and shapes.",
+            "correct_answer": true,
+            "explanation": "Prophet models seasonality using Fourier series: s(t) = Σ[aₙcos(2πnt/P) + bₙsin(2πnt/P)]. The number of Fourier terms (fourier_order) controls the complexity of the seasonal pattern that can be captured."
+          },
+          {
+            "id": 7,
+            "type": "multiple_choice",
+            "question": "When performing cross-validation with Prophet using cross_validation(), what does the 'horizon' parameter specify?",
+            "options": [
+              "The total length of the training data",
+              "How far into the future to make forecasts for evaluation",
+              "The number of days between changepoints",
+              "The seasonal period length"
+            ],
+            "correct_answer": 1,
+            "explanation": "The 'horizon' parameter specifies the forecast distance for evaluation (e.g., '365 days'). Combined with 'initial' (training size) and 'period' (evaluation frequency), it creates a rolling cross-validation scheme to assess forecast accuracy."
           }
         ]
       }

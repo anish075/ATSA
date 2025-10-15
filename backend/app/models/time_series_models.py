@@ -225,29 +225,39 @@ class HoltWintersModel(BaseTimeSeriesModel):
         }
 
 class ProphetModel(BaseTimeSeriesModel):
-    """Facebook Prophet model"""
+    """Facebook Prophet model (or fallback exponential smoothing)"""
     
     def __init__(self, **kwargs):
-        if not PROPHET_AVAILABLE:
-            raise ImportError("Prophet not available. Install with: pip install prophet")
-        
+        self.use_fallback = not PROPHET_AVAILABLE
         self.model_params = kwargs
         self.model = None
         self.fitted_model = None
         self.data = None
     
     def fit(self, data: pd.Series, **kwargs) -> None:
-        """Fit Prophet model"""
+        """Fit Prophet model or fallback"""
         try:
-            # Prepare data for Prophet
-            df = pd.DataFrame({
-                'ds': data.index if hasattr(data.index, 'to_pydatetime') else pd.date_range(start='2020-01-01', periods=len(data), freq='D'),
-                'y': data.values
-            })
-            
-            self.model = Prophet(**self.model_params)
-            self.fitted_model = self.model.fit(df)
-            self.data = df
+            if self.use_fallback:
+                # Fallback: Use Holt-Winters as alternative
+                from statsmodels.tsa.holtwinters import ExponentialSmoothing
+                self.model = ExponentialSmoothing(
+                    data,
+                    trend='add',
+                    seasonal='add',
+                    seasonal_periods=min(12, len(data) // 2)
+                )
+                self.fitted_model = self.model.fit()
+                self.data = data
+            else:
+                # Prepare data for Prophet
+                df = pd.DataFrame({
+                    'ds': data.index if hasattr(data.index, 'to_pydatetime') else pd.date_range(start='2020-01-01', periods=len(data), freq='D'),
+                    'y': data.values
+                })
+                
+                self.model = Prophet(**self.model_params)
+                self.fitted_model = self.model.fit(df)
+                self.data = df
         except Exception as e:
             raise ValueError(f"Prophet model fitting failed: {str(e)}")
     
@@ -256,34 +266,53 @@ class ProphetModel(BaseTimeSeriesModel):
         if not self.fitted_model:
             raise ValueError("Model must be fitted before forecasting")
         
-        # Create future dataframe
-        future = self.fitted_model.make_future_dataframe(periods=periods)
-        forecast = self.fitted_model.predict(future)
-        
-        # Extract forecast values (last 'periods' values)
-        forecast_values = forecast['yhat'].tail(periods).values
-        lower_bound = forecast['yhat_lower'].tail(periods).values
-        upper_bound = forecast['yhat_upper'].tail(periods).values
-        
-        return {
-            'forecast': forecast_values.tolist(),
-            'lower_bound': lower_bound.tolist(),
-            'upper_bound': upper_bound.tolist()
-        }
+        if self.use_fallback:
+            # Fallback: Use Holt-Winters forecast
+            forecast_obj = self.fitted_model.forecast(periods)
+            forecast_values = forecast_obj.values if hasattr(forecast_obj, 'values') else forecast_obj
+            
+            # Simple confidence intervals
+            std_dev = float(self.data.std())
+            z_score = 1.96
+            
+            return {
+                'forecast': forecast_values.tolist() if hasattr(forecast_values, 'tolist') else list(forecast_values),
+                'lower_bound': [float(v) - z_score * std_dev for v in forecast_values],
+                'upper_bound': [float(v) + z_score * std_dev for v in forecast_values]
+            }
+        else:
+            # Create future dataframe
+            future = self.fitted_model.make_future_dataframe(periods=periods)
+            forecast = self.fitted_model.predict(future)
+            
+            # Extract forecast values (last 'periods' values)
+            forecast_values = forecast['yhat'].tail(periods).values
+            lower_bound = forecast['yhat_lower'].tail(periods).values
+            upper_bound = forecast['yhat_upper'].tail(periods).values
+            
+            return {
+                'forecast': forecast_values.tolist(),
+                'lower_bound': lower_bound.tolist(),
+                'upper_bound': upper_bound.tolist()
+            }
     
     def get_fitted_values(self) -> np.ndarray:
         """Get fitted values"""
         if not self.fitted_model or self.data is None:
             raise ValueError("Model must be fitted first")
         
-        forecast = self.fitted_model.predict(self.data)
-        return forecast['yhat'].values
+        if self.use_fallback:
+            return self.fitted_model.fittedvalues.values
+        else:
+            forecast = self.fitted_model.predict(self.data)
+            return forecast['yhat'].values
     
     def get_model_info(self) -> Dict[str, Any]:
         """Get model information"""
         return {
-            'model_type': 'prophet',
-            'parameters': self.model_params
+            'model_type': 'prophet' if not self.use_fallback else 'prophet_fallback',
+            'parameters': self.model_params,
+            'note': 'Using Holt-Winters fallback' if self.use_fallback else 'Using Facebook Prophet'
         }
 
 class TimeSeriesModelManager:
@@ -294,10 +323,11 @@ class TimeSeriesModelManager:
             'arima': ARIMAModel,
             'sarima': SARIMAModel,
             'holt-winters': HoltWintersModel,
+            'holt_winters': HoltWintersModel,  # Support underscore version
+            'moving_average': MovingAverageModel,
+            'prophet': ProphetModel,  # Now has fallback, always available
+            'lstm': LSTMModel,  # Now has fallback, always available
         }
-        
-        if PROPHET_AVAILABLE:
-            self.models['prophet'] = ProphetModel
     
     def create_model(self, model_type: str, **kwargs) -> BaseTimeSeriesModel:
         """Create a model instance"""
@@ -305,6 +335,62 @@ class TimeSeriesModelManager:
             raise ValueError(f"Unknown model type: {model_type}")
         
         return self.models[model_type](**kwargs)
+    
+    def test_stationarity(self, series: pd.Series) -> Dict[str, Any]:
+        """
+        Test if time series is stationary using Augmented Dickey-Fuller test
+        Returns test results and recommendation
+        """
+        try:
+            # Perform ADF test
+            result = adfuller(series.dropna(), autolag='AIC')
+            
+            adf_statistic = result[0]
+            p_value = result[1]
+            critical_values = result[4]
+            
+            # Determine if stationary (p-value < 0.05 means stationary)
+            is_stationary = p_value < 0.05
+            
+            return {
+                'is_stationary': is_stationary,
+                'adf_statistic': float(adf_statistic),
+                'p_value': float(p_value),
+                'critical_values': {k: float(v) for k, v in critical_values.items()},
+                'interpretation': 'Stationary' if is_stationary else 'Non-stationary',
+                'recommendation': 'Data is ready for modeling' if is_stationary else 'Differencing recommended'
+            }
+        except Exception as e:
+            return {
+                'is_stationary': None,
+                'error': str(e),
+                'interpretation': 'Test failed',
+                'recommendation': 'Unable to test stationarity'
+            }
+    
+    def make_stationary(self, series: pd.Series, max_diff: int = 2) -> Tuple[pd.Series, int, Dict[str, Any]]:
+        """
+        Make time series stationary through differencing
+        Returns: (stationary_series, num_differences, test_results)
+        """
+        original_test = self.test_stationarity(series)
+        
+        if original_test.get('is_stationary', False):
+            return series, 0, original_test
+        
+        # Try differencing
+        diff_series = series.copy()
+        for d in range(1, max_diff + 1):
+            diff_series = diff_series.diff().dropna()
+            test_result = self.test_stationarity(diff_series)
+            
+            if test_result.get('is_stationary', False):
+                print(f"Series became stationary after {d} difference(s)")
+                return diff_series, d, test_result
+        
+        # If still not stationary after max_diff
+        print(f"Series still non-stationary after {max_diff} differences")
+        return diff_series, max_diff, test_result
     
     def fit_and_forecast(self, data: Dict[str, Any], model_config: Dict[str, Any]) -> Dict[str, Any]:
         """Fit model and generate forecast"""
@@ -329,6 +415,19 @@ class TimeSeriesModelManager:
         if len(series) < 10:
             raise ValueError("Insufficient data points for modeling")
         
+        # Test stationarity
+        print("Testing stationarity of original series...")
+        stationarity_test = self.test_stationarity(series)
+        print(f"Stationarity test result: {stationarity_test}")
+        
+        # Store original series for visualization
+        original_series = series.copy()
+        original_values = original_series.values.tolist()
+        
+        # Make stationary if needed (but don't use for modeling - let models handle it)
+        stationary_series, num_diffs, stationary_test = self.make_stationary(series)
+        stationary_values = stationary_series.values.tolist() if num_diffs > 0 else None
+        
         # Create and fit model
         model_type = model_config.get('model_type', 'arima')
         parameters = model_config.get('parameters', {})
@@ -349,18 +448,49 @@ class TimeSeriesModelManager:
             metrics = self._calculate_metrics(series.values, fitted_values)
             
             # Generate forecast dates
-            if hasattr(series.index, 'freq') and series.index.freq:
-                last_date = series.index[-1]
-                forecast_dates = pd.date_range(
-                    start=last_date + series.index.freq,
-                    periods=forecast_periods,
-                    freq=series.index.freq
-                )
-                forecast_dates = forecast_dates.strftime('%Y-%m-%d').tolist()
+            forecast_dates = []
+            if isinstance(series.index, pd.DatetimeIndex) and len(series.index) > 1:
+                # Infer frequency if not set
+                if series.index.freq is None:
+                    try:
+                        inferred_freq = pd.infer_freq(series.index)
+                        if inferred_freq:
+                            series.index = pd.DatetimeIndex(series.index, freq=inferred_freq)
+                            print(f"Inferred frequency: {inferred_freq}")
+                    except Exception as e:
+                        print(f"Could not infer frequency: {e}")
+                        inferred_freq = None
+                
+                # Try to generate forecast dates
+                try:
+                    last_date = series.index[-1]
+                    if series.index.freq:
+                        forecast_dates = pd.date_range(
+                            start=last_date + series.index.freq,
+                            periods=forecast_periods,
+                            freq=series.index.freq
+                        )
+                    else:
+                        # Calculate average time difference
+                        time_diffs = series.index.to_series().diff().dropna()
+                        avg_diff = time_diffs.mean()
+                        forecast_dates = pd.date_range(
+                            start=last_date + avg_diff,
+                            periods=forecast_periods,
+                            freq=avg_diff
+                        )
+                    forecast_dates = forecast_dates.strftime('%Y-%m-%d').tolist()
+                except Exception as e:
+                    print(f"Error generating forecast dates: {e}")
+                    # Fallback to sequential numbering
+                    last_idx = len(series)
+                    forecast_dates = [f"Period {last_idx + i + 1}" for i in range(forecast_periods)]
             else:
-                # Simple incremental dates
+                # Simple incremental dates for non-datetime index
                 last_idx = len(series)
                 forecast_dates = [f"Period {last_idx + i + 1}" for i in range(forecast_periods)]
+            
+            print(f"Generated {len(forecast_dates)} forecast dates: {forecast_dates[:5]}...")
             
             return {
                 'model_type': model_type,
@@ -370,7 +500,16 @@ class TimeSeriesModelManager:
                 'forecast_upper': forecast_result['upper_bound'],
                 'forecast_dates': forecast_dates,
                 'metrics': metrics,
-                'model_info': model_info
+                'model_info': model_info,
+                'stationarity': {
+                    'original_test': stationarity_test,
+                    'stationary_test': stationary_test if num_diffs > 0 else stationarity_test,
+                    'num_differences': num_diffs,
+                    'original_values': original_values,
+                    'stationary_values': stationary_values,
+                    'is_stationary': stationarity_test.get('is_stationary', False),
+                    'needs_differencing': not stationarity_test.get('is_stationary', False)
+                }
             }
             
         except Exception as e:
@@ -527,53 +666,58 @@ class TimeSeriesModelManager:
         return True, "Parameters are valid"
 
 class LSTMModel(BaseTimeSeriesModel):
-    """LSTM Neural Network model for time series forecasting"""
+    """LSTM Neural Network model for time series forecasting (or ARIMA fallback)"""
     
     def __init__(self, sequence_length: int = 60, lstm_units: int = 50, dropout_rate: float = 0.2):
-        if not TF_AVAILABLE:
-            raise ImportError("TensorFlow not available. Install with: pip install tensorflow")
-            
+        self.use_fallback = not TF_AVAILABLE
         self.sequence_length = sequence_length
         self.lstm_units = lstm_units
         self.dropout_rate = dropout_rate
         self.model = None
-        self.scaler = MinMaxScaler(feature_range=(0, 1))
+        self.scaler = None if self.use_fallback else MinMaxScaler(feature_range=(0, 1))
         self.history = None
         self.original_data = None
         
     def fit(self, data: pd.Series, epochs: int = 50, batch_size: int = 32, **kwargs) -> None:
-        """Fit LSTM model"""
+        """Fit LSTM model or fallback"""
         try:
-            self.original_data = data.values.reshape(-1, 1)
-            
-            # Scale the data
-            scaled_data = self.scaler.fit_transform(self.original_data)
-            
-            # Create sequences
-            X, y = self._create_sequences(scaled_data, self.sequence_length)
-            
-            if len(X) == 0:
-                raise ValueError("Insufficient data for sequence creation")
-            
-            # Build model
-            self.model = Sequential([
-                LSTM(self.lstm_units, return_sequences=True, input_shape=(X.shape[1], 1)),
-                Dropout(self.dropout_rate),
-                LSTM(self.lstm_units, return_sequences=False),
-                Dropout(self.dropout_rate),
-                Dense(1)
-            ])
-            
-            self.model.compile(optimizer='adam', loss='mean_squared_error')
-            
-            # Train model
-            self.history = self.model.fit(
-                X, y,
-                epochs=epochs,
-                batch_size=batch_size,
-                verbose=0,
-                validation_split=0.2
-            )
+            if self.use_fallback:
+                # Fallback: Use ARIMA as alternative
+                from statsmodels.tsa.arima.model import ARIMA
+                self.original_data = data
+                self.model = ARIMA(data, order=(2, 1, 2))
+                self.model = self.model.fit()
+            else:
+                self.original_data = data.values.reshape(-1, 1)
+                
+                # Scale the data
+                scaled_data = self.scaler.fit_transform(self.original_data)
+                
+                # Create sequences
+                X, y = self._create_sequences(scaled_data, self.sequence_length)
+                
+                if len(X) == 0:
+                    raise ValueError("Insufficient data for sequence creation")
+                
+                # Build model
+                self.model = Sequential([
+                    LSTM(self.lstm_units, return_sequences=True, input_shape=(X.shape[1], 1)),
+                    Dropout(self.dropout_rate),
+                    LSTM(self.lstm_units, return_sequences=False),
+                    Dropout(self.dropout_rate),
+                    Dense(1)
+                ])
+                
+                self.model.compile(optimizer='adam', loss='mean_squared_error')
+                
+                # Train model
+                self.history = self.model.fit(
+                    X, y,
+                    epochs=epochs,
+                    batch_size=batch_size,
+                    verbose=0,
+                    validation_split=0.2
+                )
             
         except Exception as e:
             raise ValueError(f"LSTM model fitting failed: {str(e)}")
@@ -591,60 +735,94 @@ class LSTMModel(BaseTimeSeriesModel):
         if not self.model:
             raise ValueError("Model must be fitted before forecasting")
         
-        # Use last sequence_length points for prediction
-        last_sequence = self.scaler.transform(self.original_data[-self.sequence_length:])
-        forecasts = []
-        
-        current_sequence = last_sequence.copy()
-        
-        for _ in range(periods):
-            # Predict next value
-            pred_input = current_sequence.reshape(1, self.sequence_length, 1)
-            pred_scaled = self.model.predict(pred_input, verbose=0)[0, 0]
+        if self.use_fallback:
+            # Fallback: Use ARIMA forecast
+            forecast_obj = self.model.forecast(steps=periods)
+            forecasts = forecast_obj.values if hasattr(forecast_obj, 'values') else forecast_obj
             
-            # Inverse transform to get actual value
-            pred_actual = self.scaler.inverse_transform([[pred_scaled]])[0, 0]
-            forecasts.append(pred_actual)
+            # Get prediction intervals
+            pred_int = self.model.get_forecast(steps=periods).conf_int(alpha=1-confidence_interval)
             
-            # Update sequence for next prediction
-            current_sequence = np.roll(current_sequence, -1)
-            current_sequence[-1, 0] = pred_scaled
-        
-        # Create confidence intervals (simplified)
-        forecast_array = np.array(forecasts)
-        std_dev = np.std(forecasts) if len(forecasts) > 1 else np.std(self.original_data) * 0.1
-        z_score = 1.96  # 95% confidence interval
-        
-        return {
-            'forecast': forecasts,
-            'lower_bound': (forecast_array - z_score * std_dev).tolist(),
-            'upper_bound': (forecast_array + z_score * std_dev).tolist()
-        }
+            return {
+                'forecast': forecasts.tolist() if hasattr(forecasts, 'tolist') else list(forecasts),
+                'lower_bound': pred_int.iloc[:, 0].tolist(),
+                'upper_bound': pred_int.iloc[:, 1].tolist()
+            }
+        else:
+            # Use last sequence_length points for prediction
+            last_sequence = self.scaler.transform(self.original_data[-self.sequence_length:])
+            forecasts = []
+            
+            current_sequence = last_sequence.copy()
+            
+            for _ in range(periods):
+                # Predict next value
+                pred_input = current_sequence.reshape(1, self.sequence_length, 1)
+                pred_scaled = self.model.predict(pred_input, verbose=0)[0, 0]
+                
+                # Inverse transform to get actual value
+                pred_actual = self.scaler.inverse_transform([[pred_scaled]])[0, 0]
+                forecasts.append(pred_actual)
+                
+                # Update sequence for next prediction
+                current_sequence = np.roll(current_sequence, -1)
+                current_sequence[-1, 0] = pred_scaled
+            
+            # Create confidence intervals (simplified)
+            forecast_array = np.array(forecasts)
+            std_dev = np.std(forecasts) if len(forecasts) > 1 else np.std(self.original_data) * 0.1
+            z_score = 1.96  # 95% confidence interval
+            
+            return {
+                'forecast': forecasts,
+                'lower_bound': (forecast_array - z_score * std_dev).tolist(),
+                'upper_bound': (forecast_array + z_score * std_dev).tolist()
+            }
     
     def get_fitted_values(self) -> np.ndarray:
         """Get fitted values"""
         if not self.model:
             raise ValueError("Model must be fitted first")
         
-        # Create sequences from original data
-        scaled_data = self.scaler.transform(self.original_data)
-        X, _ = self._create_sequences(scaled_data, self.sequence_length)
-        
-        if len(X) == 0:
-            return np.array([])
-        
-        # Predict on training data
-        predictions_scaled = self.model.predict(X, verbose=0)
-        predictions = self.scaler.inverse_transform(predictions_scaled)
-        
-        # Pad with NaN for the initial sequence_length values
-        fitted = np.full(len(self.original_data), np.nan)
-        fitted[self.sequence_length:] = predictions.flatten()
-        
-        return fitted
+        if self.use_fallback:
+            # Fallback: Return ARIMA fitted values
+            return self.model.fittedvalues.values
+        else:
+            # Create sequences from original data
+            scaled_data = self.scaler.transform(self.original_data)
+            X, _ = self._create_sequences(scaled_data, self.sequence_length)
+            
+            if len(X) == 0:
+                return np.array([])
+            
+            # Predict on training data
+            predictions_scaled = self.model.predict(X, verbose=0)
+            predictions = self.scaler.inverse_transform(predictions_scaled)
+            
+            # Pad with forward fill for the initial sequence_length values
+            fitted = np.full(len(self.original_data), np.nan)
+            fitted[self.sequence_length:] = predictions.flatten()
+            
+            # Fill NaN values
+            filled = pd.Series(fitted).fillna(method='bfill').fillna(method='ffill')
+            return filled.values
     
     def get_model_info(self) -> Dict[str, Any]:
         """Get model information"""
+        info = {
+            'model_type': 'lstm' if not self.use_fallback else 'lstm_fallback',
+            'sequence_length': self.sequence_length,
+            'lstm_units': self.lstm_units,
+            'dropout_rate': self.dropout_rate,
+            'note': 'Using ARIMA fallback' if self.use_fallback else 'Using LSTM Neural Network'
+        }
+        
+        if not self.use_fallback and self.history:
+            info['training_loss'] = float(self.history.history['loss'][-1])
+            if 'val_loss' in self.history.history:
+                info['validation_loss'] = float(self.history.history['val_loss'][-1])
+        
+        return info
         info = {
             'model_type': 'lstm',
             'sequence_length': self.sequence_length,
@@ -679,13 +857,20 @@ class MovingAverageModel(BaseTimeSeriesModel):
         
         # Simple forecast using last window average
         last_values = self.data.tail(self.window)
-        forecast_value = last_values.mean()
+        forecast_value = float(last_values.mean())
+        
+        # Handle potential NaN
+        if np.isnan(forecast_value):
+            forecast_value = float(self.data.mean())
         
         # All forecasts are the same value (naive approach)
         forecasts = [forecast_value] * periods
         
         # Simple confidence intervals
-        std_dev = last_values.std()
+        std_dev = float(last_values.std())
+        if np.isnan(std_dev):
+            std_dev = float(self.data.std())
+        
         z_score = 1.96
         
         return {
@@ -698,7 +883,9 @@ class MovingAverageModel(BaseTimeSeriesModel):
         """Get fitted values"""
         if self.fitted_values is None:
             raise ValueError("Model must be fitted first")
-        return self.fitted_values.values
+        # Replace NaN values with forward fill for JSON serialization
+        filled_values = self.fitted_values.fillna(method='bfill').fillna(method='ffill')
+        return filled_values.values
     
     def get_model_info(self) -> Dict[str, Any]:
         """Get model information"""

@@ -195,6 +195,10 @@ const LearningPage: React.FC = () => {
   const filteredModules = selectedCategory === 'all' 
     ? learningModules 
     : learningModules.filter(module => module.category === selectedCategory);
+  
+  const totalModules = learningModules.length;
+  const completedModules = learningModules.filter(m => m.completed).length;
+  const progressPercentage = Math.round((completedModules / totalModules) * 100);
 
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty) {
@@ -213,9 +217,33 @@ const LearningPage: React.FC = () => {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
             Learn Time Series Analysis
           </h1>
-          <p className="text-gray-600 dark:text-gray-300">
+          <p className="text-gray-600 dark:text-gray-300 mb-4">
             Interactive lessons with animated explanations
           </p>
+          
+          {/* Progress Bar */}
+          <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Overall Progress
+              </span>
+              <span className="text-sm font-bold text-blue-600 dark:text-blue-400">
+                {completedModules}/{totalModules} completed
+              </span>
+            </div>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${progressPercentage}%` }}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+                className="h-full bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-end pr-2"
+              >
+                {progressPercentage > 10 && (
+                  <span className="text-xs text-white font-bold">{progressPercentage}%</span>
+                )}
+              </motion.div>
+            </div>
+          </div>
         </div>
 
         {/* Category Filter */}

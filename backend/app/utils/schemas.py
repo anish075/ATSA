@@ -34,8 +34,10 @@ class ModelResult(BaseModel):
     forecast: List[float]
     forecast_lower: List[float]
     forecast_upper: List[float]
+    forecast_dates: List[str] = []
     metrics: Dict[str, float]
-    parameters: Dict[str, Any]
+    parameters: Dict[str, Any] = {}
+    model_info: Dict[str, Any] = {}
 
 class ModelComparison(BaseModel):
     models: List[ModelResult]
